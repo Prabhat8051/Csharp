@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
-using System.Collections.Generic;
 using System.IO;
 using CommandLine;
 using Microsoft.DotNet.Darc.Helpers;
@@ -45,15 +44,8 @@ internal abstract class VmrCommandLineOptions : CommandLineOptions
         }
 
         var services = new ServiceCollection();
-        services
-            .AddTransient<GitFileManagerFactory>()
-            .AddVmrManagers(
-                sp => sp.GetRequiredService<GitFileManagerFactory>(),
-                GitLocation,
-                VmrPath,
-                tmpPath,
-                gitHubToken,
-                azureDevOpsToken);
+
+        services.AddVmrManagers(GitLocation, VmrPath, tmpPath, gitHubToken, azureDevOpsToken);
 
         return services;
     }

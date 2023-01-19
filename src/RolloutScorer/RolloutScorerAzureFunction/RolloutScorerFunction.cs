@@ -1,5 +1,5 @@
-using Azure.Identity;
-using Azure.Security.KeyVault.Secrets;
+using Microsoft.Azure.KeyVault;
+using Microsoft.Azure.KeyVault.Models;
 using Microsoft.Azure.Services.AppAuthentication;
 using Microsoft.Azure.WebJobs;
 using Microsoft.DotNet.Services.Utility;
@@ -20,17 +20,16 @@ public static class RolloutScorerFunction
     [FunctionName("RolloutScorerFunction")]
     public static async Task Run([TimerTrigger("0 0 0 * * *")]TimerInfo myTimer, ILogger log)
     {
-        DefaultAzureCredential tokenProvider = new();
+        AzureServiceTokenProvider tokenProvider = new();
 
         string deploymentEnvironment = Environment.GetEnvironmentVariable("DeploymentEnvironment") ?? "Staging";
         log.LogInformation($"INFO: Deployment Environment: {deploymentEnvironment}");
 
         log.LogInformation("INFO: Getting scorecard storage account key and deployment table's SAS URI from KeyVault...");
-        SecretClient engKeyVaultClient = new(new Uri(Utilities.KeyVaultUri), tokenProvider);
-        SecretClient dotNetEngStatusVaultClient = new(new Uri("https://DotNetEng-Status-Prod.vault.azure.net"), tokenProvider);
-
-        KeyVaultSecret scorecardsStorageAccountKey = await engKeyVaultClient.GetSecretAsync(ScorecardsStorageAccount.KeySecretName);
-        KeyVaultSecret deploymentTableSasUriBundle = await dotNetEngStatusVaultClient.GetSecretAsync("deployment-table-sas-uri");
+        SecretBundle scorecardsStorageAccountKey = await GetSecretBundleFromKeyVaultAsync(tokenProvider,
+            Utilities.KeyVaultUri, ScorecardsStorageAccount.KeySecretName);
+        SecretBundle deploymentTableSasUriBundle = await GetSecretBundleFromKeyVaultAsync(tokenProvider,
+            "https://DotNetEng-Status-Prod.vault.azure.net", "deployment-table-sas-uri");
 
         log.LogInformation("INFO: Getting cloud tables...");
         CloudTable scorecardsTable = Utilities.GetScorecardsCloudTable(scorecardsStorageAccountKey.Value);
@@ -61,7 +60,11 @@ public static class RolloutScorerFunction
                 var scorecards = new List<Scorecard>();
 
                 log.LogInformation("INFO: Rollouts will be scored. Fetching GitHub PAT...");
-                KeyVaultSecret githubPat = await engKeyVaultClient.GetSecretAsync(Utilities.GitHubPatSecretName);
+                SecretBundle githubPat;
+                using (KeyVaultClient kv = new(new KeyVaultClient.AuthenticationCallback(tokenProvider.KeyVaultTokenCallback)))
+                {
+                    githubPat = await kv.GetSecretAsync(Utilities.KeyVaultUri, Utilities.GitHubPatSecretName);
+                }
 
                 // We'll score the deployments by service
                 foreach (var deploymentGroup in relevantDeployments.GroupBy(d => d.Service))
@@ -93,9 +96,11 @@ public static class RolloutScorerFunction
                         .Find(a => a.Name == rolloutScorer.RepoConfig.AzdoInstance);
 
                     log.LogInformation($"INFO: Fetching AzDO PAT from KeyVault...");
-                    SecretClient azdoConfigVaultClient = new SecretClient(new Uri(rolloutScorer.AzdoConfig.KeyVaultUri), tokenProvider);
-                    KeyVaultSecret azdoPatSecret = await azdoConfigVaultClient.GetSecretAsync(rolloutScorer.AzdoConfig.PatSecretName);
-                    rolloutScorer.SetupHttpClient(azdoPatSecret.Value);
+                    using (KeyVaultClient kv = new(new KeyVaultClient.AuthenticationCallback(tokenProvider.KeyVaultTokenCallback)))
+                    {
+                        rolloutScorer.SetupHttpClient(
+                            (await kv.GetSecretAsync(rolloutScorer.AzdoConfig.KeyVaultUri, rolloutScorer.AzdoConfig.PatSecretName)).Value);
+                    }
                     rolloutScorer.SetupGithubClient(githubPat.Value);
 
                     log.LogInformation($"INFO: Attempting to initialize RolloutScorer...");
@@ -147,5 +152,13 @@ public static class RolloutScorerFunction
             token = queryResult.ContinuationToken;
         } while (token != null);
         return items;
+    }
+
+    private static async Task<SecretBundle> GetSecretBundleFromKeyVaultAsync(AzureServiceTokenProvider tokenProvider, string keyVaultUri, string secretName)
+    {
+        using (KeyVaultClient kv = new KeyVaultClient(new KeyVaultClient.AuthenticationCallback(tokenProvider.KeyVaultTokenCallback)))
+        {
+            return await kv.GetSecretAsync(keyVaultUri, secretName);
+        }
     }
 }

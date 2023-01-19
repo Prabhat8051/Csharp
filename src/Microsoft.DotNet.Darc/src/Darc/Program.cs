@@ -195,7 +195,6 @@ internal static class Program
         typeof(InitializeCommandLineOptions),
         typeof(UpdateCommandLineOptions),
         typeof(GenerateTpnCommandLineOptions),
-        typeof(ScanCommandLineOptions),
     };
 
     private static void InitializeTelemetry()

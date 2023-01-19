@@ -3,8 +3,6 @@
 // See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
 using Microsoft.DotNet.Darc.Models.VirtualMonoRepo;
 using Microsoft.DotNet.DarcLib.Helpers;
 
@@ -17,9 +15,7 @@ public interface IVmrDependencyTracker
 {
     IReadOnlyCollection<SourceMapping> Mappings { get; }
 
-    Task InitializeSourceMappings(string sourceMappingsPath);
-
-    void UpdateDependencyVersion(VmrDependencyUpdate update);
+    void UpdateDependencyVersion(SourceMapping mapping, VmrDependencyVersion version);
 
     void UpdateSubmodules(List<SubmoduleRecord> submodules);
 
@@ -40,18 +36,13 @@ public class VmrDependencyTracker : IVmrDependencyTracker
     private readonly LocalPath _allVersionsFilePath;
     private readonly IVmrInfo _vmrInfo;
     private readonly IFileSystem _fileSystem;
-    private readonly ISourceMappingParser _sourceMappingParser;
-    private IReadOnlyCollection<SourceMapping>? _mappings;
 
-    public IReadOnlyCollection<SourceMapping> Mappings
-    {
-        get => _mappings ?? throw new System.Exception("Source mappings have not been initialized.");
-    }
-            
+    public IReadOnlyCollection<SourceMapping> Mappings { get; }
+
     public VmrDependencyTracker(
         IVmrInfo vmrInfo,
         IFileSystem fileSystem,
-        ISourceMappingParser sourceMappingParser,
+        IReadOnlyCollection<SourceMapping> mappings,
         ISourceManifest sourceManifest)
     {
         _vmrInfo = vmrInfo;
@@ -59,44 +50,38 @@ public class VmrDependencyTracker : IVmrDependencyTracker
         _sourceManifest = sourceManifest;
         _repoVersions = new AllVersionsPropsFile(sourceManifest.Repositories);
         _fileSystem = fileSystem;
-        _sourceMappingParser = sourceMappingParser;
-        _mappings = null;
+        Mappings = mappings;
     }
 
     public VmrDependencyVersion? GetDependencyVersion(SourceMapping mapping)
         => _sourceManifest.GetVersion(mapping.Name);
 
-    public async Task InitializeSourceMappings(string sourceMappingsPath)
-    {
-        _mappings = await _sourceMappingParser.ParseMappings(sourceMappingsPath);
-    }
-
-    public void UpdateDependencyVersion(VmrDependencyUpdate update)
+    public void UpdateDependencyVersion(SourceMapping mapping, VmrDependencyVersion version)
     {
         // TODO: https://github.com/dotnet/source-build/issues/2250
-        if (update.TargetVersion is null)
+        if (version.PackageVersion is null)
         {
-            update = update with { TargetVersion = DefaultVersion };
+            version = version with { PackageVersion = DefaultVersion };
         }
 
-        _repoVersions.UpdateVersion(update.Mapping.Name, update.TargetRevision, update.TargetVersion);
+        _repoVersions.UpdateVersion(mapping.Name, version.Sha, version.PackageVersion);
         _repoVersions.SerializeToXml(_allVersionsFilePath);
 
-        _sourceManifest.UpdateVersion(update.Mapping.Name, update.RemoteUri, update.TargetRevision, update.TargetVersion);
+        _sourceManifest.UpdateVersion(mapping.Name, mapping.DefaultRemote, version.Sha, version.PackageVersion);
         _fileSystem.WriteToFile(_vmrInfo.GetSourceManifestPath(), _sourceManifest.ToJson());
 
-        var (buildId, releaseLabel) = VersionFiles.DeriveBuildInfo(update.Mapping.Name, update.TargetVersion);
+        var (buildId, releaseLabel) = VersionFiles.DeriveBuildInfo(mapping.Name, version.PackageVersion);
         
         var gitInfo = new GitInfoFile
         {
-            GitCommitHash = update.TargetRevision,
+            GitCommitHash = version.Sha,
             OfficialBuildId = buildId,
             PreReleaseVersionLabel = releaseLabel,
             IsStable = string.IsNullOrWhiteSpace(releaseLabel),
-            OutputPackageVersion = update.TargetVersion,
+            OutputPackageVersion = version.PackageVersion,
         };
 
-        gitInfo.SerializeToXml(GetGitInfoFilePath(update.Mapping));
+        gitInfo.SerializeToXml(GetGitInfoFilePath(mapping));
     }
 
     public void UpdateSubmodules(List<SubmoduleRecord> submodules)

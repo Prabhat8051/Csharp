@@ -6,11 +6,11 @@ using System;
 using System.Threading.Tasks;
 using Maestro.AzureDevOps;
 using Maestro.Data;
-using Microsoft.DotNet.DarcLib;
-using Microsoft.DotNet.DarcLib.Helpers;
 using Microsoft.DotNet.GitHub.Authentication;
+using Microsoft.DotNet.DarcLib;
 using Microsoft.DotNet.Internal.Logging;
 using Microsoft.DotNet.ServiceFabric.ServiceHost;
+using Microsoft.DotNet.Services.Utility;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -27,12 +27,14 @@ public class DarcRemoteFactory : IRemoteFactory
         TemporaryFiles tempFiles,
         ILocalGit localGit,
         IVersionDetailsParser versionDetailsParser,
-        OperationManager operations)
+        OperationManager operations,
+        ExponentialRetry retry)
     {
         _tempFiles = tempFiles;
         _localGit = localGit;
         _versionDetailsParser = versionDetailsParser;
         _operations = operations;
+        _retry = retry;
         _configuration = configuration;
         _gitHubTokenProvider = gitHubTokenProvider;
         _azureDevOpsTokenProvider = azureDevOpsTokenProvider;
@@ -50,6 +52,8 @@ public class DarcRemoteFactory : IRemoteFactory
     private readonly ILocalGit _localGit;
     private readonly IVersionDetailsParser _versionDetailsParser;
     private readonly OperationManager _operations;
+    private readonly ExponentialRetry _retry;
+
 
     public Task<IRemote> GetBarOnlyRemoteAsync(ILogger logger)
     {
@@ -72,28 +76,29 @@ public class DarcRemoteFactory : IRemoteFactory
             {
                 temporaryRepositoryRoot = _tempFiles.GetFilePath("repos");
             }
+            IRemoteGitRepo gitClient;
 
             long installationId = await _context.GetInstallationId(normalizedUrl);
+
             var gitExe = _localGit.GetPathToLocalGit();
 
-            IRemoteGitRepo gitClient = GitRepoTypeParser.ParseFromUri(normalizedUrl) switch
+            switch (normalizedRepoUri.Host)
             {
-                GitRepoType.GitHub => installationId == default
-                    ? throw new GithubApplicationInstallationException($"No installation is available for repository '{normalizedUrl}'")
-                    : new GitHubClient(
-                        gitExe,
-                        await _gitHubTokenProvider.GetTokenForInstallationAsync(installationId),
-                        logger,
-                        temporaryRepositoryRoot,
-                        _cache.Cache),
+                case "github.com":
+                    if (installationId == default)
+                    {
+                        throw new GithubApplicationInstallationException($"No installation is available for repository '{normalizedUrl}'");
+                    }
 
-                GitRepoType.AzureDevOps => new AzureDevOpsClient(
-                    gitExe,
-                    await _azureDevOpsTokenProvider.GetTokenForRepository(normalizedUrl),
-                    logger,
-                    temporaryRepositoryRoot),
-
-                _ => throw new NotImplementedException($"Unknown repo url type {normalizedUrl}"),
+                    gitClient = new GitHubClient(gitExe, await _gitHubTokenProvider.GetTokenForInstallationAsync(installationId),
+                        logger, temporaryRepositoryRoot, _cache.Cache);
+                    break;
+                case "dev.azure.com":
+                    gitClient = new AzureDevOpsClient(gitExe, await _azureDevOpsTokenProvider.GetTokenForRepository(normalizedUrl),
+                        logger, temporaryRepositoryRoot);
+                    break;
+                default:
+                    throw new NotImplementedException($"Unknown repo url type {normalizedUrl}");
             };
 
             return new Remote(gitClient, new MaestroBarClient(_context), _versionDetailsParser, logger);

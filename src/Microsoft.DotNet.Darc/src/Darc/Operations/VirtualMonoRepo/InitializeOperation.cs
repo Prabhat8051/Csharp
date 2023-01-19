@@ -2,11 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.DotNet.Darc.Models.VirtualMonoRepo;
 using Microsoft.DotNet.Darc.Options.VirtualMonoRepo;
-using Microsoft.DotNet.DarcLib.Helpers;
 using Microsoft.DotNet.DarcLib.VirtualMonoRepo;
 
 #nullable enable
@@ -24,17 +23,9 @@ internal class InitializeOperation : VmrOperationBase<IVmrInitializer>
 
     protected override async Task ExecuteInternalAsync(
         IVmrInitializer vmrManager,
-        string repoName,
+        SourceMapping mapping,
         string? targetRevision,
-        IReadOnlyCollection<AdditionalRemote> additionalRemotes,
         CancellationToken cancellationToken)
         =>
-        await vmrManager.InitializeRepository(
-            repoName,
-            targetRevision,
-            null,
-            _options.Recursive,
-            new NativePath(_options.SourceMappings),
-            additionalRemotes,
-            cancellationToken);
+        await vmrManager.InitializeRepository(mapping, targetRevision, null, _options.Recursive, cancellationToken);
 }

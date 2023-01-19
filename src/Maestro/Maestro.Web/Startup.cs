@@ -29,6 +29,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Rewrite;
+using Microsoft.Azure.KeyVault;
+using Microsoft.Azure.KeyVault.Models;
 using Microsoft.DotNet.DarcLib;
 using Microsoft.DotNet.ServiceFabric.ServiceHost;
 using Microsoft.EntityFrameworkCore;
@@ -41,13 +43,14 @@ using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using Microsoft.DotNet.GitHub.Authentication;
 using Microsoft.DotNet.Kusto;
+using Microsoft.Azure.Services.AppAuthentication;
+using Microsoft.DotNet.Internal.DependencyInjection;
 using Microsoft.Extensions.Internal;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 using Swashbuckle.AspNetCore.Swagger;
-using Azure.Identity;
 
 namespace Maestro.Web;
 
@@ -143,12 +146,16 @@ public partial class Startup : StartupBase
         {
             IConfigurationSection dpConfig = Configuration.GetSection("DataProtection");
 
-            Uri keyBlobUri = new Uri(dpConfig["KeyBlobUri"]);
-            Uri dataProtectionKeyUri = new Uri(dpConfig["DataProtectionKeyUri"]);
+            string vaultUri = Configuration["KeyVaultUri"];
+            string keyVaultKeyIdentifierName = dpConfig["KeyIdentifier"];
+            var provider = new AzureServiceTokenProvider();
+            var kvClient = new KeyVaultClient(new KeyVaultClient.AuthenticationCallback(provider.KeyVaultTokenCallback));
+            KeyBundle key = kvClient.GetKeyAsync(vaultUri, keyVaultKeyIdentifierName).GetAwaiter().GetResult();
+
 
             services.AddDataProtection()
-                .PersistKeysToAzureBlobStorage(keyBlobUri, new DefaultAzureCredential())
-                .ProtectKeysWithAzureKeyVault(dataProtectionKeyUri, new DefaultAzureCredential())
+                .PersistKeysToAzureBlobStorage(new Uri(dpConfig["KeyFileUri"]))
+                .ProtectKeysWithAzureKeyVault(kvClient, key.KeyIdentifier.ToString())
                 .SetDefaultKeyLifetime(DataProtectionKeyLifetime)
                 .SetApplicationName(typeof(Startup).FullName);
         }

@@ -13,9 +13,7 @@ public interface ILocalGitRepo : IGitRepo
     /// </summary>
     /// <param name="repoDir">Path to a git repository</param>
     /// <param name="repoUrl">URL of the remote to add</param>
-    /// <param name="skipFetch">Skip fetching remote changes</param>
-    /// <returns>Name of the remote</returns>
-    string AddRemoteIfMissing(string repoDir, string repoUrl, bool skipFetch = false);
+    void AddRemoteIfMissing(string repoDir, string repoUrl);
 
     /// <summary>
     ///     Checkout the repo to the specified state.

@@ -20,6 +20,10 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.KeyVault;
+using Microsoft.Azure.KeyVault.Models;
+using Microsoft.Azure.Services.AppAuthentication;
+using Microsoft.DncEng.Configuration.Extensions;
 using Microsoft.DotNet.GitHub.Authentication;
 using Microsoft.DotNet.Internal.Health;
 using Microsoft.DotNet.Services.Utility;
@@ -35,7 +39,7 @@ using Microsoft.DotNet.Internal.AzureDevOps;
 using Microsoft.DotNet.Internal.DependencyInjection;
 using Microsoft.DotNet.Kusto;
 using Octokit;
-using Azure.Identity;
+using AzureStorage = Microsoft.Azure.Storage;
 
 namespace DotNet.Status.Web;
 
@@ -65,12 +69,16 @@ public class Startup
         else
         {
             IConfigurationSection dpConfig = Configuration.GetSection("DataProtection");
-            Uri keyBlobUri = new Uri(dpConfig["KeyBlobUri"]);
-            Uri dataProtectionKeyUri = new Uri(dpConfig["DataProtectionKeyUri"]);
+            var provider = new AzureServiceTokenProvider();
+            var kvClient = new KeyVaultClient(new KeyVaultClient.AuthenticationCallback(provider.KeyVaultTokenCallback));
+            string vaultUri = Configuration[ConfigurationConstants.KeyVaultUriConfigurationKey];
+            string keyVaultKeyIdentifierName = dpConfig["KeyIdentifier"];
+            KeyBundle key = kvClient.GetKeyAsync(vaultUri, keyVaultKeyIdentifierName).GetAwaiter().GetResult();
+            AzureStorage.CloudStorageAccount cloudStorageAccount = AzureStorage.CloudStorageAccount.Parse(dpConfig["StorageAccountConnectionString"]);
 
             services.AddDataProtection()
-                .PersistKeysToAzureBlobStorage(keyBlobUri, new DefaultAzureCredential())
-                .ProtectKeysWithAzureKeyVault(dataProtectionKeyUri, new DefaultAzureCredential())
+                .PersistKeysToAzureBlobStorage(cloudStorageAccount, "/site/keys.xml")
+                .ProtectKeysWithAzureKeyVault(kvClient, key.KeyIdentifier.ToString())
                 .SetDefaultKeyLifetime(TimeSpan.FromDays(14))
                 .SetApplicationName(typeof(Startup).FullName);
 

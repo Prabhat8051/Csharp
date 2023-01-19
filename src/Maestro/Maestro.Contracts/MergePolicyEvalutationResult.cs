@@ -2,7 +2,28 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-namespace Maestro.MergePolicyEvaluation;
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+
+namespace Maestro.Contracts;
+
+public class MergePolicyEvaluationResults
+{
+    public MergePolicyEvaluationResults(IEnumerable<MergePolicyEvaluationResult> results)
+    {
+        Results = results.ToImmutableList();
+    }
+
+    public IImmutableList<MergePolicyEvaluationResult> Results { get; }
+
+    public bool Succeeded => Results.Count > 0 && Results.All(r => r.Status == MergePolicyEvaluationStatus.Success);
+
+    public bool Pending => Results.Any(r => r.Status == MergePolicyEvaluationStatus.Pending);
+
+    public bool Failed => Results.Any(r => r.Status == MergePolicyEvaluationStatus.Failure);
+}
 
 public class MergePolicyEvaluationResult
 {
@@ -29,6 +50,13 @@ public class MergePolicyEvaluationResult
 
     public MergePolicyEvaluationStatus Status { get; }
     public string Title { get; }
-    public string Message { get; }
+    public string Message { get;}
     public IMergePolicyInfo MergePolicyInfo { get; }
+}
+
+public enum MergePolicyEvaluationStatus
+{
+    Pending = 0,
+    Success,
+    Failure,
 }

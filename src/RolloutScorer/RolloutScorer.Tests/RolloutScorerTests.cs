@@ -4,7 +4,10 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Microsoft.Azure.KeyVault;
+using Microsoft.Azure.Services.AppAuthentication;
 using NUnit.Framework;
+using Octokit;
 
 namespace RolloutScorer.Tests;
 

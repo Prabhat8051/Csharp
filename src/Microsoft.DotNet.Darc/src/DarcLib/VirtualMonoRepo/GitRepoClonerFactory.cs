@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using Microsoft.DotNet.DarcLib.Helpers;
 using Microsoft.Extensions.Logging;
 using System;
 
@@ -23,13 +22,25 @@ public class GitRepoClonerFactory : IGitRepoClonerFactory
         _vmrRemoteConfig = vmrRemoteConfig;
     }
 
-    public IGitRepoCloner GetCloner(string repoUri, ILogger logger) => GitRepoTypeParser.ParseFromUri(repoUri) switch
+    public IGitRepoCloner GetCloner(string repoUrl, ILogger logger)
     {
-        GitRepoType.GitHub => new GitRepoCloner(_vmrRemoteConfig.GitHubToken, logger),
-        GitRepoType.AzureDevOps => new GitRepoCloner(_vmrRemoteConfig.AzureDevOpsToken, logger),
-        GitRepoType.Local => new GitRepoCloner(string.Empty, logger),
-        _ => throw new NotImplementedException($"Unsupported repository remote {repoUri}"),
-    };
+        Uri repoUri = new(repoUrl);
+
+        if (repoUri.IsFile)
+        {
+            return new GitRepoCloner(string.Empty, logger);
+        } 
+        if (repoUri.Host == "github.com")
+        {
+            return new GitRepoCloner(_vmrRemoteConfig.GitHubToken, logger);
+        }
+        if (repoUri.Host == "dev.azure.com")
+        {
+            return new GitRepoCloner(_vmrRemoteConfig.AzureDevOpsToken, logger);
+        }
+        
+        throw new NotImplementedException($"Unsupported repository remote {repoUrl}");
+    }
 }
 
 

@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Maestro.Contracts;
 using Maestro.Data.Models;
-using Maestro.MergePolicyEvaluation;
 using Microsoft.DotNet.DarcLib;
 
 namespace SubscriptionActorService;
